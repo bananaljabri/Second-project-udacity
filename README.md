@@ -14,36 +14,26 @@ The app uses a ML model to categorize any new messages received, and the reposit
 
 Project files:
 
-1- process_data.py: This code takes as its input csv files containing message data and message categories (labels), and creates an SQLite database containing a merged and cleaned version of this data.
+Processing data, building an ETL pipeline to extract data from source, cleaning the data and saving it in a SQLite DB.
 
-2- train_classifier.py: This code takes the SQLite database produced by process_data.py as an input and uses the data contained within it to train and tune a ML model for categorizing messages. The output is a pickle file containing the fitted model. Test evaluation metrics are also printed as part of the training process.
+Build a machine learning pipeline that can classify tweet text messages into 36 different categories.
 
-3- ETL Pipeline Preparation.ipynb: The code and analysis contained in this Jupyter notebook was used in the development of process_data.py. process_data.py effectively automates this notebook.
+Running a web application which can show model results in real time.
 
-4- ML Pipeline Preparation.ipynb: The code and analysis contained in this Jupyter notebook was used in the development of train_classifier.py. In particular, it contains the analysis used to tune the ML model and determine which algorithm to use. train_classifier.py effectively automates the model fitting process contained in this notebook.
-
-5- data: This folder contains sample messages and categories datasets in csv format.
-
-6- app: This folder contains all of the files necessary to run and render the web app.
 
 How to run?
 
-1- Run process_data.py
+To run ETL pipeline for cleaning data and store the processed data in the database:
 
-Save the data folder in the current working directory and process_data.py in the data folder.
+Run the below command from the terminal-
 
-From the current working directory, run the following command: python data/process_data.py data/disaster_messages.csv data/disaster_categories.csv data/DisasterResponse.db
+python data/process_data.py data/disaster_messages.csv data/disaster_categories.csv data/DisasterResponse.db
+To run the ML pipeline that loads data from DB, trains classifier and saves the classifier as a pickle file:
 
-2- Run train_classifier.py
+Run the below command from the terminal-
 
-In the current working directory, create a folder called 'models' and save train_classifier.py in this.
+python models/train_classifier.py data/DisasterResponse.db models/classifier.pkl
+Run the following command in the app's directory to run your web app-
 
-From the current working directory, run the following command: python models/train_classifier.py data/DisasterResponse.db models/classifier.pkl
-
-3- Run the web app
-
-Save the app folder in the current working directory.
-
-Run the following command in the app directory: python run.py
-
-Go to http://0.0.0.0:3001/
+python run.py
+Open a browser and go to http://0.0.0.0:3001/. 
