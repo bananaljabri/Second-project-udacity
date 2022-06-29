@@ -1,218 +1,232 @@
-# Import libraries
-import sys
-import pandas as pd
-import numpy as np
-from sqlalchemy import create_engine
+import os
 import re
 import pickle
+import logging
+import argparse
+
 import nltk
 
-nltk.download('punkt')
-nltk.download('stopwords')
+import numpy as np
+import pandas as pd
 
+import sklearn.pipeline as skpipe
+import sklearn.decomposition as skdec
+import sklearn.preprocessing as skprep
+import sklearn.model_selection as skms
+import sklearn.feature_extraction.text as skfet
+
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import classification_report
+from sklearn.base import BaseEstimator, TransformerMixin
+
+from nltk import pos_tag
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
-from nltk.stem.porter import PorterStemmer
 
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.multioutput import MultiOutputClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, make_scorer
-from sklearn.model_selection import GridSearchCV
+from sqlalchemy import create_engine
 
-import warnings
+from typing import List, Tuple, Optional
 
-warnings.simplefilter('ignore')
+nltk.download(['stopwords', 'wordnet', 'averaged_perceptron_tagger'])
+
+STOP_WORDS = [w for w in stopwords.words('english')]
+
+RANDOM_SEED = 42
 
 
-def load_data(database_filepath):
-    """Load and merge messages and categories datasets
-    
-    Args:
-    database_filename: string. Filename for SQLite database containing cleaned message data.
-       
-    Returns:
-    X: dataframe. Dataframe containing features dataset.
-    Y: dataframe. Dataframe containing labels dataset.
-    category_names: list of strings. List containing category names.
+def parse_arguments() -> Tuple[str, str]:
     """
-    # Load data from database
-    engine = create_engine('sqlite:///' + database_filepath)
-    df = pd.read_sql("SELECT * FROM Messages", engine)
-    
-    # Create X and Y datasets
+    Parse command line arguments.
+    """
+    parser = argparse.ArgumentParser(description='Disaster Response / Message classification')
+    parser.add_argument('-d', '--path-to-database', type=str)
+    parser.add_argument('-M', '--path-to-model', type=str)
+    args = parser.parse_args()
+
+    return args.path_to_database, args.path_to_model
+
+
+def load_data(path_to_database: str, table_name: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, List]:
+    """
+    Load the data from the SQLite database and split it into feature and target variables.
+    """
+    if table_name is None:
+        table_name, _ = os.path.splitext(os.path.basename(path_to_database))
+
+    engine = create_engine(f'sqlite:///{path_to_database}')
+    df = pd.read_sql_table(table_name, con=engine)
+
     X = df['message']
-    Y = df.drop(['id', 'message', 'original', 'genre'], axis = 1)
-    
-    # Create list containing all category names
-    category_names = list(Y.columns.values)
-    
-    return X, Y, category_names
+    y = df.drop(['message', 'genre', 'id', 'original'], axis=1)
+
+    class_names = y.columns.tolist()
+
+    return X, y, class_names
+
 
 def tokenize(text):
-    """Normalize, tokenize and stem text string
-    
-    Args:
-    text: string. String containing message for processing
-       
-    Returns:
-    stemmed: list of strings. List containing normalized and stemmed word tokens
     """
-    # Convert text to lowercase and remove punctuation
-    text = re.sub(r"[^a-zA-Z0-9]", " ", text.lower())
-    
-    # Tokenize words
+    Clean, normalize, lemmatize, and tokenize the text.
+    """
+    # normalize the text
+    url_expression = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    text = re.sub(url_expression, '', text)
+
+    # tokenize the text
     tokens = word_tokenize(text)
-    
-    # Stem word tokens and remove stop words
-    stemmer = PorterStemmer()
-    stop_words = stopwords.words("english")
-    
-    stemmed = [stemmer.stem(word) for word in tokens if word not in stop_words]
-    
-    return stemmed
 
-# Define performance metric for use in grid search scoring object
-def performance_metric(y_true, y_pred):
-    """Calculate median F1 score for all of the output classifiers
+    # remove stop words and punctuations
+    tokens = [token for token in tokens if token not in STOP_WORDS]
 
-        Args:
-        y_true: array. Array containing actual labels.
-        y_pred: array. Array containing predicted labels.
+    # lemmatize tokens
+    lemmatizer = WordNetLemmatizer()
+    tokens = [lemmatizer.lemmatize(token) for token in tokens if token]
 
-        Returns:
-        score: float. Median F1 score for all of the output classifiers
-        """
-    f1_list = []
-    for i in range(np.shape(y_pred)[1]):
-        f1 = f1_score(np.array(y_true)[:, i], y_pred[:, i])
-        f1_list.append(f1)
-        
-    score = np.median(f1_list)
-    return score
-    
-def build_model():
-    """Build a machine learning pipeline
-    
-    Args:
-    None
-       
-    Returns:
-    cv: gridsearchcv object. Gridsearchcv object that transforms the data, creates the 
-    model object and finds the optimal model parameters.
+    return tokens
+
+
+class RatioUpperExtractor(BaseEstimator, TransformerMixin):
     """
-    # Create pipeline
-    pipeline = Pipeline([
-        ('vect', CountVectorizer(tokenizer = tokenize, min_df = 5)),
-        ('tfidf', TfidfTransformer(use_idf = True)),
-        ('clf', MultiOutputClassifier(RandomForestClassifier(n_estimators = 10,
-                                                             min_samples_split = 10)))
+    Extract the ratio of uppercase words.
+    """
+    @staticmethod
+    def get_upper_ratio(text):
+        words_total = [word.strip(' ') for word in text.split(' ')]
+
+        if not words_total:
+            return 0.0
+
+        words_upper = [word for word in words_total if word == word.upper() and len(word) > 1]
+        return 1.0 * len(words_upper) / len(words_total)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return np.array(list(map(self.get_upper_ratio, X))).reshape(-1, 1)
+
+
+class CountVerbExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract the number of verbs.
+    """
+    @staticmethod
+    def count_verbs(text):
+        tokens = tokenize(text)
+
+        if not tokens:
+            return 0.0
+
+        return len([word for word, tag in pos_tag(tokens) if tag.startswith('VB')])
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return np.array(list(map(self.count_verbs, X))).reshape(-1, 1)
+
+
+class RatioNounExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract the ratio of nouns.
+    """
+    @staticmethod
+    def get_noun_ratio(text):
+        tokens = tokenize(text)
+        if not tokens:
+            return 0.0
+        pos_tags = pos_tag(tokens)
+        nouns = [word for word, tag in pos_tags if tag.startswith('NN')]
+        return len(nouns) / len(pos_tags)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return np.array(list(map(self.get_noun_ratio, X))).reshape(-1, 1)
+
+
+def build_model():
+    """
+    Build an NLP pipeline for multi-label text classification.
+    """
+    # text processing and model pipeline
+    pipeline = skpipe.Pipeline([
+        ('nlp', skpipe.FeatureUnion([
+            ('tfif', skpipe.Pipeline([('feat', skfet.TfidfVectorizer(strip_accents='unicode', tokenizer=tokenize)),
+                                      ('lsa', skdec.TruncatedSVD(n_components=200, algorithm='arpack'))])),
+            ('uppr', RatioUpperExtractor()),
+            ('verb', CountVerbExtractor()),
+            ('noun', RatioNounExtractor())
+        ])),
+        ('norm', skprep.StandardScaler()),
+        ('clf', MLPClassifier(
+            activation='logistic', learning_rate='adaptive', early_stopping=True, random_state=RANDOM_SEED, verbose=1
+        ))
     ])
-    
-    # Create parameters dictionary
-    parameters = {'vect__min_df': [1, 5],
-                  'tfidf__use_idf':[True, False],
-                  'clf__estimator__n_estimators':[10, 25], 
-                  'clf__estimator__min_samples_split':[2, 5, 10]}
-    
-    # Create scorer
-    scorer = make_scorer(performance_metric)
-    
-    # Create grid search object
-    cv = GridSearchCV(pipeline, param_grid = parameters, scoring = scorer, verbose = 10)
+
+    # define grid search parameters
+    params = {
+        'clf__learning_rate_init': [5e-3, 7.5e-3, 1e-2],
+        'clf__hidden_layer_sizes': [(100), (200,), (300,)]
+    }
+    # instantiate GridSearchCV object
+    cv = skms.GridSearchCV(
+        estimator=pipeline,
+        param_grid=params,
+        n_jobs=-1,
+        refit=True,
+        return_train_score=True
+    )
+
     return cv
 
 
-def get_eval_metrics(actual, predicted, col_names):
-    """Calculate evaluation metrics for ML model
-    
-    Args:
-    actual: array. Array containing actual labels.
-    predicted: array. Array containing predicted labels.
-    col_names: list of strings. List containing names for each of the predicted fields.
-       
-    Returns:
-    metrics_df: dataframe. Dataframe containing the accuracy, precision, recall 
-    and f1 score for a given set of actual and predicted labels.
+def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray, class_names: List) -> None:
     """
-    metrics = []
-    
-    # Calculate evaluation metrics for each set of labels
-    for i in range(len(col_names)):
-        accuracy = accuracy_score(actual[:, i], predicted[:, i])
-        precision = precision_score(actual[:, i], predicted[:, i])
-        recall = recall_score(actual[:, i], predicted[:, i])
-        f1 = f1_score(actual[:, i], predicted[:, i])
-        
-        metrics.append([accuracy, precision, recall, f1])
-    
-    # Create dataframe containing metrics
-    metrics = np.array(metrics)
-    metrics_df = pd.DataFrame(data = metrics, index = col_names, columns = ['Accuracy', 'Precision', 'Recall', 'F1'])
-      
-    return metrics_df
+    Display performance metrics for the trained model.
+    """
+    y_pred = model.predict(X_test)
+
+    print(classification_report(y_test, y_pred, target_names=class_names, zero_division=0))
 
 
-def evaluate_model(model, X_test, Y_test, category_names):
-    """Returns test accuracy, precision, recall and F1 score for fitted model
-    
-    Args:
-    model: model object. Fitted model object.
-    X_test: dataframe. Dataframe containing test features dataset.
-    Y_test: dataframe. Dataframe containing test labels dataset.
-    category_names: list of strings. List containing category names.
-    
-    Returns:
-    None
+def save_model(model, path_to_model: str) -> None:
     """
-    # Predict labels for test dataset
-    Y_pred = model.predict(X_test)
-    
-    # Calculate and print evaluation metrics
-    eval_metrics = get_eval_metrics(np.array(Y_test), Y_pred, category_names)
-    print(eval_metrics)
-    
+    Export the trained model as a pickle file.
+    """
+    with open(path_to_model, 'wb') as file:
+        pickle.dump(model, file)
 
-def save_model(model, model_filepath):
-    """Pickle fitted model
-    
-    Args:
-    model: model object. Fitted model object.
-    model_filepath: string. Filepath for where fitted model should be saved
-    
-    Returns:
-    None
-    """
-    pickle.dump(model.best_estimator_, open(model_filepath, 'wb'))
 
 def main():
-    if len(sys.argv) == 3:
-        database_filepath, model_filepath = sys.argv[1:]
-        print('Loading data...\n    DATABASE: {}'.format(database_filepath))
-        X, Y, category_names = load_data(database_filepath)
-        X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
-        
-        print('Building model...')
-        model = build_model()
-        
-        print('Training model...')
-        model.fit(X_train, Y_train)
-        
-        print('Evaluating model...')
-        evaluate_model(model, X_test, Y_test, category_names)
+    path_to_database, path_to_model = parse_arguments()
 
-        print('Saving model...\n    MODEL: {}'.format(model_filepath))
-        save_model(model, model_filepath)
+    print(f'Loading data...\n\tDatabase: {path_to_database}')
+    X, y, class_names = load_data(path_to_database)
+    X, y = X.values, y.values
 
-        print('Trained model saved!')
+    X_train, X_test, y_train, y_test = skms.train_test_split(X, y, test_size=0.2, random_state=RANDOM_SEED)
 
-    else:
-        print('Please provide the filepath of the disaster messages database '\
-              'as the first argument and the filepath of the pickle file to '\
-              'save the model to as the second argument. \n\nExample: python '\
-              'train_classifier.py ../data/DisasterResponse.db classifier.pkl')
+    print('Building model...')
+    model = build_model()
+
+    print('Training model...')
+
+    try:
+        model.fit(X_train, y_train)
+    except Exception as ex:
+        logging.exception(ex)
+        print('Grid search failed.')
+
+    print('Evaluating model...')
+    evaluate_model(model.best_estimator_, X_test, y_test, class_names)
+
+    print('Saving model...\n\tModel: {}'.format(path_to_model))
+    save_model(model.best_estimator_, path_to_model)
+
+    print('Trained model saved.')
 
 
 if __name__ == '__main__':
