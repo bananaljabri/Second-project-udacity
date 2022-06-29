@@ -1,118 +1,102 @@
-# Import packages
-import sys
+import os
+import argparse
+
 import pandas as pd
-import numpy as np
+
+from typing import Tuple
+from typing import Optional
+
 from sqlalchemy import create_engine
 
-def load_data(messages_filepath, categories_filepath):
-    """Load and merge messages and categories datasets
-    
-    Args:
-    messages_filepath: string. Filepath for csv file containing messages dataset.
-    categories_filepath: string. Filepath for csv file containing categories dataset.
-       
-    Returns:
-    df: dataframe. Dataframe containing merged content of messages and categories datasets.
+
+PATH_TO_MESSAGES: Optional[str] = None
+PATH_TO_CATEGORIES: Optional[str] = None
+PATH_TO_DATABASE: Optional[str] = None
+
+
+def load_data(messages_filepath: str, categories_filepath: str) -> pd.DataFrame:
     """
-    
-    # Load messages dataset
+    Load the messages and categories datasets and merge them.
+
+    """
     messages = pd.read_csv(messages_filepath)
-    
-    # Load categories dataset
     categories = pd.read_csv(categories_filepath)
-    
-    # Merge datasets
-    df = messages.merge(categories, how = 'left', on = ['id'])
-    
+
+    df = pd.merge(messages, categories, how='inner', on='id')
+
     return df
 
-def clean_data(df):
-    """Clean dataframe by removing duplicates and converting categories from strings 
-    to binary values.
-    
-    Args:
-    df: dataframe. Dataframe containing merged content of messages and categories datasets.
-       
-    Returns:
-    df: dataframe. Dataframe containing cleaned version of input dataframe.
-    """
-    
-    # Create a dataframe of the 36 individual category columns
-    categories = df['categories'].str.split(';', expand = True)
-    
-    # Select the first row of the categories dataframe
-    row = categories.iloc[0]
 
-    # use this row to extract a list of new column names for categories.
-    # one way is to apply a lambda function that takes everything 
-    # up to the second to last character of each string with slicing
-    category_colnames = row.transform(lambda x: x[:-2]).tolist()
-    
-    # Rename the columns of `categories`
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean the data.
+    """
+
+    # split the categories column into separate columns
+    categories = df.categories.str.split(pat=';', expand=True)
+
+    # rename columns
+    category_colnames = categories.iloc[0, :].apply(lambda x: x[:-2])
     categories.columns = category_colnames
-    
-    # Convert  category values to numeric values
+
     for column in categories:
-        # set each value to be the last character of the string
-        categories[column] = categories[column].transform(lambda x: x[-1:])
-        
+        # select the last character of the string
+        categories[column] = categories[column].str[-1]
         # convert column from string to numeric
-        categories[column] = pd.to_numeric(categories[column])
-    
-    # Drop the original categories column from `df`
-    df.drop('categories', axis = 1, inplace = True)
-    
-    
-    # Concatenate the original dataframe with the new `categories` dataframe
-    df = pd.concat([df, categories], axis = 1)
-    
-    # Drop duplicates
-    df.drop_duplicates(inplace = True)
-    
-    # Remove rows with a related value of 2 from the dataset
-    df = df[df['related'] != 2]
-    
+        categories[column] = categories[column].astype(int)
+
+    # convert category values to binary
+    categories = (categories > 0).astype(int)
+
+    # concatenate the original dataframe with the new categories
+    df = df.drop('categories', axis=1)
+    df = pd.concat([df, categories], axis=1, join='inner')
+
+    # drops duplicates
+    df = df.drop_duplicates()
+
     return df
 
 
-def save_data(df, database_filename):
-    """Save cleaned data into an SQLite database.
-    
-    Args:
-    df: dataframe. Dataframe containing cleaned version of merged message and 
-    categories data.
-    database_filename: string. Filename for output database.
-       
-    Returns:
-    None
+def save_data(df: pd.DataFrame, path_to_database: str = 'disaster_responses.db', table_name: Optional[str] = None):
     """
-    engine = create_engine('sqlite:///' + database_filename)
-    df.to_sql('Messages', engine, index=False, if_exists='replace')
-    
+    Save the cleaned data into a SQLite database.
+    """
+    if table_name is None:
+        table_name, _ = os.path.splitext(os.path.basename(path_to_database))
+
+    engine = create_engine(f'sqlite:///{path_to_database}')
+    df.to_sql(table_name, engine, index=False, if_exists='replace')
+
+
+def parse_arguments() -> Tuple[str, str, str]:
+    """
+    Parse command line arguments.
+    """
+    parser = argparse.ArgumentParser(description='Disaster Response / Data Processing')
+    parser.add_argument('-m', '--path-to-messages', type=str)
+    parser.add_argument('-c', '--path-to-categories', type=str)
+    parser.add_argument('-d', '--path-to-database', type=str)
+    args = parser.parse_args()
+
+    return args.path_to_messages, args.path_to_categories, args.path_to_database
+
+
 def main():
-    if len(sys.argv) == 4:
+    global PATH_TO_MESSAGES, PATH_TO_CATEGORIES, PATH_TO_DATABASE
 
-        messages_filepath, categories_filepath, database_filepath = sys.argv[1:]
+    PATH_TO_MESSAGES, PATH_TO_CATEGORIES, PATH_TO_DATABASE = parse_arguments()
 
-        print('Loading data...\n    MESSAGES: {}\n    CATEGORIES: {}'
-              .format(messages_filepath, categories_filepath))
-        df = load_data(messages_filepath, categories_filepath)
+    print(f'Loading data...\n\tMessages: {PATH_TO_MESSAGES}\n\tCategories: {PATH_TO_CATEGORIES}')
+    df = load_data(PATH_TO_MESSAGES, PATH_TO_CATEGORIES)
 
-        print('Cleaning data...')
-        df = clean_data(df)
-        
-        print('Saving data...\n    DATABASE: {}'.format(database_filepath))
-        save_data(df, database_filepath)
-        
-        print('Cleaned data saved to database!')
-    
-    else:
-        print('Please provide the filepaths of the messages and categories '\
-              'datasets as the first and second argument respectively, as '\
-              'well as the filepath of the database to save the cleaned data '\
-              'to as the third argument. \n\nExample: python process_data.py '\
-              'disaster_messages.csv disaster_categories.csv '\
-              'DisasterResponse.db')
+    print('Cleaning data...')
+    df = clean_data(df)
+
+    print(f'Saving data...\n\tDatabase: {PATH_TO_DATABASE}')
+    save_data(df, PATH_TO_DATABASE)
+
+    print('Cleaned data saved to database.')
 
 
 if __name__ == '__main__':
