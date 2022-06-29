@@ -30,20 +30,20 @@ How to run?
 
 1- Run process_data.py
 
-2- Save the data folder in the current working directory and process_data.py in the data folder.
+Save the data folder in the current working directory and process_data.py in the data folder.
 
-3- From the current working directory, run the following command: python data/process_data.py data/disaster_messages.csv data/disaster_categories.csv data/DisasterResponse.db
+From the current working directory, run the following command: python data/process_data.py data/disaster_messages.csv data/disaster_categories.csv data/DisasterResponse.db
 
-4- Run train_classifier.py
+2- Run train_classifier.py
 
-5- In the current working directory, create a folder called 'models' and save train_classifier.py in this.
+In the current working directory, create a folder called 'models' and save train_classifier.py in this.
 
-6- From the current working directory, run the following command: python models/train_classifier.py data/DisasterResponse.db models/classifier.pkl
+From the current working directory, run the following command: python models/train_classifier.py data/DisasterResponse.db models/classifier.pkl
 
-7- Run the web app
+3- Run the web app
 
-8- Save the app folder in the current working directory.
+Save the app folder in the current working directory.
 
-9- Run the following command in the app directory: python run.py
+Run the following command in the app directory: python run.py
 
-10- Go to http://0.0.0.0:3001/
+Go to http://0.0.0.0:3001/
