@@ -13,19 +13,33 @@ This repository contains code for a web app which an emergency worker could use 
 The app uses a ML model to categorize any new messages received, and the repository also contains the code used to train the model and to prepare any new datasets for model training purposes.
 
 Files in the repository:
-app
+
+- app 
+
 | - template
+
 | |- master.html # main page of web app
+
 | |- go.html # classification result page of web app
+
 |- run.py # Flask file that runs app
-data
+
+- data
+
 |- disaster_categories.csv # data to process
+
 |- disaster_messages.csv # data to process
+
 |- process_data.py
+
 |- InsertDatabaseName.db # database to save clean data to
+
 models
+
 |- train_classifier.py
+
 |- classifier.pkl # saved model
+
 README.md
 
 
