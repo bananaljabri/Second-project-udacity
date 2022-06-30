@@ -12,13 +12,22 @@ This repository contains code for a web app which an emergency worker could use 
 
 The app uses a ML model to categorize any new messages received, and the repository also contains the code used to train the model and to prepare any new datasets for model training purposes.
 
-Project files:
+Files in the repository:
+app
+| - template
+| |- master.html # main page of web app
+| |- go.html # classification result page of web app
+|- run.py # Flask file that runs app
+data
+|- disaster_categories.csv # data to process
+|- disaster_messages.csv # data to process
+|- process_data.py
+|- InsertDatabaseName.db # database to save clean data to
+models
+|- train_classifier.py
+|- classifier.pkl # saved model
+README.md
 
-Processing data, building an ETL pipeline to extract data from source, cleaning the data and saving it in a SQLite DB.
-
-Build a machine learning pipeline that can classify tweet text messages into 36 different categories.
-
-Running a web application which can show model results in real time.
 
 
 How to run?
