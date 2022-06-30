@@ -34,7 +34,7 @@ Files in the repository:
 
 |- InsertDatabaseName.db # database to save clean data to
 
-models
+- models
 
 |- train_classifier.py
 
